@@ -1,0 +1,933 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: 'AWS::Serverless-2016-10-31'
+Description: 'Test deployment of Lambda function with python3.8'
+
+Parameters:
+  ApiGatewayStageName:
+    Description : Stage name for the API Gateway
+    Type: String 
+  ApiGatewayName:
+    Description : Stage name for the API Gateway
+    Type: String 
+
+
+Resources:
+
+  ismaeelTable2:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: ismaeelTable2
+      AttributeDefinitions:
+        - 
+          AttributeName: regno
+          AttributeType: S
+      KeySchema:
+        - 
+          AttributeName: regno
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5 
+
+
+
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: "/"
+      Policies:
+      - PolicyName: putpolicy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - dynamodb:PutItem
+            - dynamodb:GetItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem   
+            Resource: 
+            - !GetAtt ismaeelTable2.Arn
+            -  arn:aws:logs:us-east-1:489994096722:log-group:/aws/lambda/getFunction:*
+
+ 
+
+  Function:
+    Type: AWS::Lambda::Function
+    DependsOn: ismaeelTable2
+    Properties:
+      Handler: index.lambda_handler
+      Runtime: python3.8
+      Timeout: 30
+      Role: !GetAtt LambdaExecutionRole.Arn
+
+       
+      # Role: arn:aws:iam::489994096722:role/service-role/ismaeelCreatedFunction-role-5yzhfs9o
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          from datetime import date
+          dynamodb = boto3.resource('dynamodb')
+          table = dynamodb.Table('ismaeelTable2')
+
+          ################################### Methods ########################################
+          ########### Methhod (1)to Check is the given regno is already exist or not  ###############
+          def check_if_item_exist(item):
+              response = table.get_item(
+                  Key={
+                      'regno': item
+                  }
+              )
+              return True if ('Item' in response) else False
+              
+              
+          ############################################## Method to check the validation of input ################
+          def validatesInput(firstname,lastname,section,errors,resp):
+              
+              if (firstname==None or not firstname):
+                  resp["message"]='Requested Inputs are not completes'                
+                  errors.append("errormessage : firstname not valid/Firstname is empty")
+
+                  
+              if (lastname==None or not lastname):
+                  resp["message"]='Requested Inputs are not completes' 
+                  errors.append("errormessage :lastname not valid/lastname is empty")
+                  
+              if (section!=None and not section):
+                  resp["message"]='Requested Inputs are not completes' 
+                  errors.append("errormessage : sectoin not valid/sectoin is empty")
+              return True if (not errors ) else False    
+
+          ################################################ main lambda function ##########################################
+          def lambda_handler(event, context):
+              errors=[]
+              resp={
+              "success":False ,
+              "StatusCode":400 ,
+              "message":""
+              }
+              if not event:
+                  resp["message"]=' invalid input request'
+                  errors.append( 'errormessage : No events Found ')     
+              elif not event.get('regno'):
+                  resp["message"]=' invalid input request'
+                  errors.append( 'errormessage : No registration events Found ') 
+              else:     
+                  IndexOfRegno=list(event.keys()).index("regno")
+                  event.update({list(event.keys())[IndexOfRegno]:list(event.values())[IndexOfRegno].upper()})
+                  regno = event.get('regno', None)
+                  firstname = event.get('firstname', None)
+                  lastname = event.get('lastname', None)
+                  section = event.get('section', None)
+                  
+                  # if  (regno==None or not regno) :
+                  #     resp["message"]=' Registration Number is Primary Key must be Entered First'
+                  #     errors.append( 'errormessage : Invalid registration number ')
+                  #     errors.append( 'errormessage : Registration Number is not Entered ')
+              
+                  if(check_if_item_exist(str(regno.upper())) ):
+                      # if (check_if_item_exist(str(regno.lower())) )
+                      resp["message"]='Duplication of data may occur try with another registration number '
+                      errors.append('errormessage : Data is already uploaded for ' + regno)
+                  
+                     
+              
+                  
+                  elif(validatesInput(firstname,lastname,section,errors,resp)):
+                      response = table.put_item(Item=event)
+                      resp["success"]=True
+                      resp["StatusCode"]=200
+                      resp["message"]='Date stored Successfully ' 
+                      # resp["errors"]=None
+              
+              
+              
+              
+              
+             
+              if not errors:
+                     resp["errors"]=None
+              else:
+                      resp["errors"]=errors
+              return resp 
+
+
+############# update method #############3
+
+  updateFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: ismaeelTable2
+    Properties:
+      Handler: index.lambda_handler
+      Runtime: python3.8
+      Timeout: 30
+      Role: !GetAtt LambdaExecutionRole.Arn
+
+       
+      # Role: arn:aws:iam::489994096722:role/service-role/ismaeelCreatedFunction-role-5yzhfs9o
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          dynamodb = boto3.resource('dynamodb')
+          table = dynamodb.Table('ismaeelTable2')
+
+          update_expression_values = []
+          expression_attribute_values = {}
+
+          ######################################################## Method that return True if data against given registration number exist of not  ########################
+
+          def check_if_item_exist(item):
+              response = table.get_item(
+                  Key={
+                      'regno': item
+                  }
+              )
+              return True if ('Item' in response) else False
+
+          ############################################################# Method to make update pattern #######################################################################
+              
+          def process_event_key(event, key,regno):
+
+              if key in event:
+                  section3=str(event.get('section', None))
+                  if  section3 =='None'  :
+                      response = table.get_item(Key={'regno': regno})
+                      if not 'section' in response['Item']:
+                          update_expression_values.append(key + ' = :val_' + key)
+                          expression_attribute_values[':val_' + key] = event[key]
+                          update_expression_values.append('#section  = :' + 'section')
+                          expression_attribute_values[':section'] = ""
+
+                      elif 'section' in response['Item']:
+                          section2=(response["Item"]["section"])
+                          update_expression_values.append(key + ' = :val_' + key)
+                          expression_attribute_values[':val_' + key] = event[key]
+                          update_expression_values.append('#section  = :' + 'section')
+                          expression_attribute_values[':section'] = section2
+                          
+
+                  elif 'section' in key:
+                      update_expression_values.append('#'+key + ' = :' + key)
+                      expression_attribute_values[':' + key] = event[key]
+                    
+
+                  else :
+                      update_expression_values.append(key + ' = :val_' + key)
+                      expression_attribute_values[':val_' + key] = event[key] 
+                     
+          ############################################################### validate input method #####################################################################
+          def validatesInput(firstname,lastname,section,errors,resp):
+              
+              if (firstname!=None and not firstname):
+                  resp["success"]=False
+                  resp["StatusCode"]=400
+                  resp["message"]='Requested Inputs are not completes'                
+                  errors.append("errormessage : firstname not valid/Firstname is empty")
+                  
+              if (lastname!=None and not lastname):
+                  resp["success"]=False
+                  resp["StatusCode"]=400
+                  resp["message"]='Requested Inputs are not completes' 
+                  errors.append("errormessage :lastname not valid/lastname is empty")
+                  
+              if (section!=None and not section):
+                  resp["success"]=False
+                  resp["StatusCode"]=400
+                  resp["message"]='Requested Inputs are not completes' 
+                  errors.append("errormessage : sectoin not valid/sectoin is empty")
+              
+                  
+              return True if (not errors ) else False
+                      
+                      
+          ######################################################################## Main Lamdba Functions ###########################################################
+              
+          def lambda_handler(event, context):
+              errors=[]
+              resp={
+              "success":False ,
+              "StatusCode":400 ,
+              "message":""
+              } 
+              if not event :
+                  resp["message"]=' invalid input request'
+                  errors.append( 'errormessage : No events Found ')
+              elif not event.get('regno'):
+                  resp["message"]=' invalid input request'
+                  errors.append( 'errormessage : No registration events Found ')     
+              else:    
+                  IndexOfRegno=list(event.keys()).index("regno")
+                  event.update({list(event.keys())[IndexOfRegno]:list(event.values())[IndexOfRegno].upper()})
+                  print("event is ",event)
+                  
+                  global update_expression_values
+                  global expression_attribute_values
+                  
+                  update_expression_values = []
+                  expression_attribute_values = {}
+                  regno = event['regno']
+                  firstname =str(event.get('firstname', None))
+                  lastname = str(event.get('lastname', None))
+                  section = str(event.get('section', None))
+              
+                  
+                  
+                  # if  not regno :
+                  #     resp["message"]=' Registration Number is Primary Key must be Entered First'
+                  #     errors.append( 'errormessage : Invalid registration number ')
+                  #     errors.append( 'errormessage : Registration Number is not Entered ')
+                      
+                  if(check_if_item_exist(regno)):
+                      lis=[]
+                      for key in event.keys():
+                          lis.append(key)
+                      lis.remove("regno") 
+                      if(validatesInput(firstname,lastname,section,errors,resp)):
+                              for keyss in lis:
+                                  process_event_key(event, keyss,regno)
+                              if(update_expression_values):
+                                  update_expression_values = list(dict.fromkeys(update_expression_values))
+                                  
+                                  seperator = ','
+                                  
+                                  update = table.update_item(
+                                      Key={
+                                          'regno': regno
+                                      },
+                                      UpdateExpression='SET ' + seperator.join(update_expression_values),
+                                      ExpressionAttributeValues=expression_attribute_values
+                                      ,
+                                      ExpressionAttributeNames= {
+                                          "#section": "section"
+                                      })
+                                  resp["success"]=True
+                                  resp["StatusCode"]=200
+                                  resp["message"]='Data update Successfully'
+                              else:
+                                  resp["success"]=False
+                                  resp["StatusCode"]=400
+                                  resp["message"]='Request is empty'
+                                  errors.append("errormessage :don't have any parameter to update / ExpressionAttributeValues is empty")
+                                  
+                  else:
+                      resp["success"]=False
+                      resp["StatusCode"]=404
+                      resp["message"]='Data Not Found try again with correct registration number'
+                      errors.append("errormessage : Requested Input key does not match the Data primary key")
+                  
+              if not errors:
+                     resp["errors"]=None
+              else:
+                      resp["errors"]=errors
+              return resp 
+
+ 
+            
+        
+############################################################## Delete Method ###########################################################
+
+  deleteFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: ismaeelTable2
+    Properties:
+      Handler: index.lambda_handler
+      Runtime: python3.8
+      Timeout: 30
+      Role: !GetAtt LambdaExecutionRole.Arn
+
+       
+      # Role: arn:aws:iam::489994096722:role/service-role/ismaeelCreatedFunction-role-5yzhfs9o
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          dynamodb = boto3.resource('dynamodb')
+          table = dynamodb.Table('ismaeelTable2')
+                  
+                  
+          def check_if_item_exist(item):
+              response = table.get_item(
+                  Key={
+                      'regno': item
+                  }
+              )
+              return True if ('Item' in response) else False
+
+
+          def lambda_handler(event, context):
+              errors=[]
+              resp={
+              "success":False ,
+              "StatusCode":400 ,
+              "message":""
+              }
+              if not event :
+                  resp["message"]=' invalid input reque'
+                  errors.append( 'errormessage : No events Found ') 
+              else:    
+                  IndexOfRegno=list(event.keys()).index("regno")
+                  event.update({list(event.keys())[IndexOfRegno]:list(event.values())[IndexOfRegno].upper()})
+              
+                  regno = event.get('regno', None)
+                  if regno==None or not regno:
+                      resp["message"]=' Registration Number is Primary Key must be Entered First'
+                      errors.append( 'errormessage : Invalid registration number ')
+                      errors.append( 'errormessage : Registration Number is not Entered ')
+                      
+                      
+                  else:
+                      if(check_if_item_exist(regno)):
+                          response = table.delete_item(
+                              Key={
+                                  'regno' : regno
+                                  })
+                          resp["success"]=True
+                          resp["StatusCode"]=200
+                          resp["message"]='Date Deleted Successfully '
+                          
+                                
+              
+                      else: 
+                          resp["message"]='Data not found '
+                          errors.append('errormessage : Data not match with any primary key ') 
+                      
+                       
+              if not errors:
+                     resp["errors"]=None
+              else:
+                      resp["errors"]=errors
+              return resp 
+
+
+################################## Get Method #################################################3
+
+  getFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: ismaeelTable2
+    Properties:
+      Handler: index.lambda_handler
+      Runtime: python3.8
+      Timeout: 30
+      Role: !GetAtt LambdaExecutionRole.Arn
+
+       
+      # Role: arn:aws:iam::489994096722:role/service-role/ismaeelCreatedFunction-role-5yzhfs9o
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          dynamodb = boto3.resource('dynamodb')
+          table = dynamodb.Table('ismaeelTable2')
+
+
+          def check_if_item_exist(item):
+              response = table.get_item(
+                  Key={
+                      'regno': item
+                  }
+              )
+              return True if ('Item' in response) else False
+
+
+
+          def lambda_handler(event, context):
+              resp={
+              "success":False ,
+              "StatusCode":400 ,
+              "message":""
+              }
+              errors=[]
+              if not event :
+                  resp["message"]=' invalid input request'
+                  errors.append( 'errormessage : No events Found ') 
+              else:    
+                  IndexOfRegno=list(event.keys()).index("regno")
+                  aa=event.update({list(event.keys())[IndexOfRegno]:list(event.values())[IndexOfRegno].upper()})
+                  
+                  regno=event.get('regno', None)
+                  if ( not regno) :
+                      resp["message"]=' Registration Number is Primary Key must be Entered First'
+                      errors.append( 'errormessage : Invalid registration number ')
+                      errors.append( 'errormessage : Registration Number is not Entered ')  
+              
+              
+                  else:
+                      if(check_if_item_exist(regno)):        
+                          response = table.get_item(Key={'regno': regno})
+                          items=response["Item"]
+                          if 'section' in items:
+                              del items['section']
+                              resp["success"]=True
+                              resp["StatusCode"]=200
+                              resp["message"]=' Data Get Successfully'
+                              resp["data"]=items
+                          else:    
+                              resp["success"]=True
+                              resp["StatusCode"]=200
+                              resp["message"]=' Data Get Successfully'
+                              resp["data"]=items
+                
+              
+                      else:
+           
+                          resp["message"]=' Data is not present'
+                          errors.append( 'errormessage : Data not found / registration no does not match the any data primary key')
+                          
+                          
+                  
+              if not errors:
+                     resp["errors"]=None
+              else:
+                      resp["errors"]=errors             
+                  
+              return resp
+
+
+  
+
+
+
+################################
+
+
+# Create ismaeelapiGateway (AWS::ApiGateway::RestApi)
+
+  ismaeelapiGateway:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      ApiKeySourceType: HEADER
+      Description: An API Gateway with a Lambda Integration
+      Name:  !Ref ApiGatewayName
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+    
+           
+
+# Create ApiGatewayResource (AWS::ApiGateway::Resource)
+
+
+  ApiGatewayResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !GetAtt ismaeelapiGateway.RootResourceId
+      PathPart: '{ismaeelpath}'
+      RestApiId: !Ref ismaeelapiGateway
+
+
+  PostyModel:
+    Type: AWS::ApiGateway::Model
+    Properties:
+      ContentType: 'application/json'
+      RestApiId: !Ref ismaeelapiGateway
+      Schema: {
+      "$schema": "http://json-schema.org/draft-04/schema#",
+      "title":"User",
+      "type":"object",
+      "properties":{
+          "regno":{
+              "type":"string"
+          },
+          "firstname":{
+              "type":"string"
+          },
+          "lastname":{
+              "type":"string"
+          },
+          "section":{
+              "type":"string"
+          }
+          
+       },
+       "required":["regno","firstname","lastname"]
+    }
+
+
+
+  PUTModel:
+    Type: AWS::ApiGateway::Model
+    Properties:
+      ContentType: 'application/json'
+      RestApiId: !Ref ismaeelapiGateway
+      Schema: {
+      "$schema": "http://json-schema.org/draft-04/schema#",
+      "title":"User",
+      "type":"object",
+      "properties":{
+          "regno":{
+              "type":"string"
+          },
+          "firstname":{
+              "type":"string"
+          },
+          "lastname":{
+              "type":"string"
+          },
+          "section":{
+              "type":"string"
+          }
+          
+       },
+       "required":["regno"]
+    }
+
+  DELETEModel:
+    Type: AWS::ApiGateway::Model
+    Properties:
+      ContentType: 'application/json'
+      RestApiId: !Ref ismaeelapiGateway
+      Schema: {
+      "$schema": "http://json-schema.org/draft-04/schema#",
+      "title":"User",
+      "type":"object",
+      "properties":{
+          "regno":{
+              "type":"string"
+          },
+          "firstname":{
+              "type":"string"
+          },
+          "lastname":{
+              "type":"string"
+          },
+          "section":{
+              "type":"string"
+          }
+          
+       },
+       "required":["regno"]
+    }
+
+  GETModel:
+    Type: AWS::ApiGateway::Model
+    Properties:
+      ContentType: 'application/json'
+      RestApiId: !Ref ismaeelapiGateway
+      Schema: {
+      "$schema": "http://json-schema.org/draft-04/schema#",
+      "title":"User",
+      "type":"object",
+      "properties":{
+          "regno":{
+              "type":"string"
+          },
+          "firstname":{
+              "type":"string"
+          },
+          "lastname":{
+              "type":"string"
+          },
+          "section":{
+              "type":"string"
+          }
+          
+       },
+       "required":["regno"]
+    }
+
+
+
+
+# ################ validator ############33
+  Validatebody:
+    Type: AWS::ApiGateway::RequestValidator
+    Properties: 
+      Name: Validate body
+      RestApiId: !Ref ismaeelapiGateway
+      ValidateRequestBody: true
+
+
+
+
+
+
+
+       # Create ApiGatewayMethod(AWS::ApiGateway::Method)
+
+
+  PostMethod:
+    Type: AWS::ApiGateway::Method
+    DependsOn: 
+      - PostyModel    
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      RequestValidatorId: !Ref Validatebody
+      HttpMethod: POST
+      RequestModels: 
+        application/json : !Ref PostyModel
+      # RequestParameters:
+      #   method.request.path.userId: true
+      Integration:
+        Credentials: !GetAtt ApiGatewayIamRole.Arn
+        IntegrationHttpMethod: POST
+        IntegrationResponses: # IntegrationResponse is a property of the Amazon API Gateway Method Integration property type that specifies the response that API Gateway sends after a method's backend finishes processing a request.
+          - ResponseTemplates: {"application/json": ""}  # The templates that are used to transform the integration response body. Specify templates as key-value pairs (string-to-string mappings), with a content type as the key and a template as the value.
+            ResponseParameters:   # The response parameters from the backend response that API Gateway sends to the method response. Specify response parameters as key-value pairs (string-to-string mappings).
+              method.response.header.X-Requested-With: "'*'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type'"  # The Access-Control-Allow-Headers response header is used in response to a preflight request which includes the Access-Control-Request-Headers to indicate which HTTP headers can be used during the actual request.
+              method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'" # The Access-Control-Allow-Methods header is a  Cross-Origin Resource Sharing(CORS) response-type header. It is used to indicate which HTTP methods are permitted while accessing the resources in response to the cross-origin requests. 
+              method.response.header.Access-Control-Allow-Origin: "'*'"  # Access-Control-Allow-Origin is a CORS (Cross-Origin Resource Sharing) header.
+                                                                        # When Site A tries to fetch content from Site B, Site B can send an Access-Control-Allow-Origin response header to tell the browser that the content of this page is accessible to certain origins
+            StatusCode: 200 # The status code that API Gateway uses to map the integration response to a MethodResponse status code.
+        PassthroughBehavior: WHEN_NO_TEMPLATES  # Indicates when API Gateway passes requests to the targeted backend. This behavior depends on the request's Content-Type header and whether you defined a mapping template for it.
+        # RequestTemplates: 
+        #   application/json: "{ \"userId\": \"$input.params('userId')\", \"firstName\": \"$input.params('firstName')\"}"
+        TimeoutInMillis: 29000
+        Type: AWS
+        # RequestParameters:
+        #   integration.request.path.userId: method.request.path.userId
+        Uri: !Sub   # The Uniform Resource Identifier (URI) for the integration.   If you specify HTTP for the Type property, specify the API endpoint URL.
+          - 'arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${lambdaArn}/invocations'
+          - lambdaArn: !GetAtt "Function.Arn"
+      MethodResponses: 
+        - ResponseModels: 
+            application/json : 'Empty'
+          ResponseParameters:  # Response parameters that API Gateway sends to the client that called a method. Specify response parameters as key-value pairs (string-to-Boolean maps), with a destination as the key and a Boolean as the value
+            method.response.header.X-Requested-With: false
+            method.response.header.Access-Control-Allow-Headers: false
+            method.response.header.Access-Control-Allow-Methods: false
+            method.response.header.Access-Control-Allow-Origin: false
+          StatusCode: 200  
+      OperationName: 'friendly operation name'
+      ResourceId: !Ref ApiGatewayResource
+      RestApiId: !Ref ismaeelapiGateway
+
+################################# api method for update #########################################
+
+  putMethod:
+    Type: AWS::ApiGateway::Method
+    DependsOn: 
+      - PUTModel    
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: PUT
+      RequestModels: 
+        application/json : !Ref PUTModel  
+      RequestValidatorId: !Ref Validatebody      
+      # RequestParameters:
+      #   method.request.path.userId: true
+      Integration:
+        Credentials: !GetAtt ApiGatewayIamRole.Arn
+        IntegrationHttpMethod: POST
+        IntegrationResponses:
+          - ResponseTemplates: {"application/json": ""}  # The templates that are used to transform the integration response body. Specify templates as key-value pairs (string-to-string mappings), with a content type as the key and a template as the value.
+            ResponseParameters:
+              method.response.header.X-Requested-With: "'*'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type'" 
+              method.response.header.Access-Control-Allow-Methods: "'PUT,OPTIONS'" #
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+            StatusCode: 200
+        PassthroughBehavior: WHEN_NO_TEMPLATES
+        # RequestTemplates: 
+        #   application/json: "{ \"userId\": \"$input.params('userId')\", \"firstName\": \"$input.params('firstName')\"}"
+        TimeoutInMillis: 29000
+        Type: AWS
+        # RequestParameters:
+        #   integration.request.path.userId: method.request.path.userId
+        Uri: !Sub
+          - 'arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${lambdaArn}/invocations'
+          - lambdaArn: !GetAtt "updateFunction.Arn"
+      MethodResponses:          
+        - ResponseModels: 
+            application/json : 'Empty'
+          ResponseParameters:    
+            method.response.header.X-Requested-With: false
+            method.response.header.Access-Control-Allow-Headers: false
+            method.response.header.Access-Control-Allow-Methods: false
+            method.response.header.Access-Control-Allow-Origin: false
+          StatusCode: 200  
+      OperationName: 'friendly operation name'
+      ResourceId: !Ref ApiGatewayResource
+      RestApiId: !Ref ismaeelapiGateway
+
+########################## api method for delete ####################################
+
+
+  deleteMethod:
+    Type: AWS::ApiGateway::Method
+    DependsOn: 
+      - DELETEModel      
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: DELETE
+      RequestModels: 
+        application/json : !Ref DELETEModel  
+      RequestValidatorId: !Ref Validatebody       
+      # RequestParameters:
+      #   method.request.path.userId: true
+      Integration:
+        Credentials: !GetAtt ApiGatewayIamRole.Arn
+        IntegrationHttpMethod: POST
+        IntegrationResponses:
+          - ResponseTemplates: {"application/json": ""}
+            ResponseParameters:
+              method.response.header.X-Requested-With: "'*'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type'"
+              method.response.header.Access-Control-Allow-Methods: "'DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+            StatusCode: 200
+        PassthroughBehavior: WHEN_NO_TEMPLATES
+        # RequestTemplates: 
+        #   application/json: "{ \"userId\": \"$input.params('userId')\", \"firstName\": \"$input.params('firstName')\"}"
+        TimeoutInMillis: 29000
+        Type: AWS
+        # RequestParameters:
+        #   integration.request.path.userId: method.request.path.userId
+        Uri: !Sub
+          - 'arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${lambdaArn}/invocations'
+          - lambdaArn: !GetAtt "deleteFunction.Arn"
+      MethodResponses: 
+        - ResponseModels: 
+            application/json : 'Empty'
+          ResponseParameters: 
+            method.response.header.X-Requested-With: false
+            method.response.header.Access-Control-Allow-Headers: false
+            method.response.header.Access-Control-Allow-Methods: false
+            method.response.header.Access-Control-Allow-Origin: false
+          StatusCode: 200  
+      OperationName: 'friendly operation name'
+      ResourceId: !Ref ApiGatewayResource
+      RestApiId: !Ref ismaeelapiGateway
+
+
+  
+  getMethod:
+    Type: AWS::ApiGateway::Method
+    DependsOn: 
+      - GETModel      
+    Properties:
+      ApiKeyRequired: false
+      AuthorizationType: NONE
+      HttpMethod: GET
+      RequestModels: 
+        application/json : !Ref GETModel  
+      RequestValidatorId: !Ref Validatebody       
+      # RequestParameters:
+      #   method.request.path.userId: true
+      Integration:
+        Credentials: !GetAtt ApiGatewayIamRole.Arn 
+        IntegrationHttpMethod: POST
+        IntegrationResponses:
+          - ResponseTemplates: {"application/json": ""}  # The templates that are used to transform the integration response body. Specify templates as key-value pairs (string-to-string mappings), with a content type as the key and a template as the value.
+            ResponseParameters:
+              method.response.header.X-Requested-With: "'*'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+            StatusCode: 200
+        PassthroughBehavior: WHEN_NO_TEMPLATES
+        # RequestTemplates: 
+        #   application/json: "{ \"regno\": \"$input.params('regno')\"}"
+        TimeoutInMillis: 29000
+        Type: AWS
+        # RequestParameters:
+        #   integration.request.path.userId: method.request.path.userId
+        Uri: !Sub
+          - 'arn:aws:apigateway:us-east-1:lambda:path/2015-03-31/functions/${lambdaArn}/invocations'
+          - lambdaArn: !GetAtt "getFunction.Arn"
+      MethodResponses: 
+        - ResponseModels: 
+            application/json : 'Empty'
+          ResponseParameters: 
+            method.response.header.X-Requested-With: false
+            method.response.header.Access-Control-Allow-Headers: false
+            method.response.header.Access-Control-Allow-Methods: false
+            method.response.header.Access-Control-Allow-Origin: false
+          StatusCode: 200  
+      OperationName: 'friendly operation name'
+      ResourceId: !Ref ApiGatewayResource
+      RestApiId: !Ref ismaeelapiGateway
+
+
+
+
+
+
+  ApiGatewayDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: 
+      - PostMethod
+      - putMethod
+      - deleteMethod
+      - getMethod
+    Properties:
+      Description: Lambda API Deployment
+      RestApiId: !Ref ismaeelapiGateway
+
+
+
+  ApiGatewayStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      DeploymentId: !Ref ApiGatewayDeployment
+      Description: Lambda API Stage
+      RestApiId: !Ref ismaeelapiGateway
+      StageName: !Ref ApiGatewayStageName
+
+
+
+  ApiGatewayIamRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: ''
+            Effect: 'Allow'
+            Principal:
+              Service:
+                - 'apigateway.amazonaws.com'
+            Action:
+              - 'sts:AssumeRole'
+      Path: '/'
+
+
+  ApiGatewayPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: "LambdaAccess"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+        -
+          Effect: 'Allow'
+          Action: 'lambda:*'
+          Resource: 
+          - !GetAtt Function.Arn
+          - !GetAtt updateFunction.Arn
+          - !GetAtt deleteFunction.Arn
+          - !GetAtt getFunction.Arn
+      Roles: 
+      - 
+        !Ref ApiGatewayIamRole
+
+  # LambdaApiGatewayInvoke:
+  #   Type: "AWS::Lambda::Permission"
+  #   Properties:
+  #     Action: "lambda:InvokeFunction"
+  #     FunctionName: !GetAtt "Function.Arn"
+  #     Principal: "apigateway.amazonaws.com"
+  #     SourceArn: !Sub arn:aws:execute-api:us-east-1:489994096722:ismaeelapiGateway/*/*
+
+
+    
+
+
+
+
+
